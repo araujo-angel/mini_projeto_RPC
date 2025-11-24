@@ -296,17 +296,6 @@ A implementacao de truncamento de WAL e rotacao de snapshots possui os seguintes
 
 **Mitigacao Sugerida:** Implementar fallback automatico para snapshot anterior se o mais recente falhar
 
-### Recomendacoes de Uso
-
-Para minimizar riscos:
-1. Monitorar tamanho de `data/wal.log` (deve ser pequeno, <1MB)
-2. Monitorar quantidade de arquivos `snapshot_*.json` (deve ser exatamente 3 apos alguns ciclos)
-3. Monitorar tamanho individual dos snapshots (indica crescimento de dados)
-4. Monitorar logs do servidor para avisos de falha em snapshot/truncamento/limpeza
-5. Fazer backup periodico do diretorio `data/` em ambiente de producao
-6. Considerar aumentar intervalo de snapshot se houver muitas escritas (ex: 180s ou 300s ao inves de 120s)
-7. Verificar permissoes do diretorio `data/` para garantir leitura/escrita/delecao
-
 ## Tecnologias
 
 - **Linguagem**: Go 1.21.5
