@@ -188,113 +188,52 @@ mini_projeto_RPC/
 │       └── snapshot_<timestamp>.json.tmp (temporario durante criacao)
 ```
 
-## Garantias e Limitações
+## Escalabilidade, Disponibilidade e Consistência
 
-### Garantias
-- **Durabilidade**: Operações confirmadas nunca são perdidas (WAL com fsync)
-- **Consistência**: Leituras sempre retornam dados confirmados mais recentes
-- **Isolamento**: Escritas são serializadas, leituras são isoladas
+### Características do Sistema
+
+**Consistência:** Forte - todas as leituras retornam a última escrita confirmada. WAL com `fsync` garante durabilidade e locks garantem isolamento.
+
+**Disponibilidade:** Limitada - servidor único é ponto de falha. Recuperação automática via WAL + Snapshot após reinício.
+
+**Escalabilidade:** Leituras concorrentes (RLock), escritas serializadas ~100-200 ops/s (fsync por operação), dados limitados pela RAM.
 
 ### Limitações
-- **Single Server**: Ponto único de falha
-- **In-Memory**: Limitado pela RAM disponível
-- **Escrita Síncrona**: ~100-200 ops/s (limitado por fsync)
-- **Sem Replicação**: Não há backup ativo em outro servidor
-- **Historico Limitado**: Mantem apenas 3 snapshots (ultimos 360 segundos com intervalo de 120s)
 
-### Pontos de Falha da Gestao Automatica de Arquivos
+1. Servidor único sem redundância (ponto único de falha)
+2. Escritas síncronas (~5-10ms por fsync)
+3. Armazenamento limitado pela RAM disponível
+4. Sem distribuição de dados entre servidores
 
-A implementacao de truncamento de WAL e rotacao de snapshots possui os seguintes cenarios de falha conhecidos:
+### Pontos de Falha e Recuperação
 
-#### 1. Falha Durante Truncamento
-**Cenario:** Sistema falha exatamente durante a operacao de truncamento do WAL (apos snapshot, durante Close/Reopen do arquivo)
+**Falha do Servidor:** Sistema indisponível, recuperação automática ao reiniciar (WAL + Snapshot), sem perda de dados confirmados.
 
-**Consequencia:**
-- WAL pode ficar em estado inconsistente ou vazio
-- Na recuperacao, se o snapshot foi criado com sucesso, nao ha perda de dados
-- Se snapshot falhou mas WAL foi truncado, operacoes desde o ultimo snapshot bem-sucedido sao perdidas
+**Falha de Disco:** Perda total de dados, sem replicação implementada.
 
-**Probabilidade:** Baixa (janela de ~10-20ms a cada 120s)
+**Falha Durante Snapshot:** WAL cresce indefinidamente, sistema continua operando mas disco pode encher.
 
-**Mitigacao:** Sistema sempre cria snapshot antes de truncar WAL, garantindo que dados estao persistidos
+**Falha de Rede:** Clientes desconectam, reconexão automática quando rede retorna.
 
-#### 2. Falha no Snapshot com WAL Cheio
-**Cenario:** Snapshots consecutivos falham (ex: disco cheio, permissoes) enquanto WAL continua crescendo
+**Crescimento de Dados:** RAM insuficiente trava servidor, requer intervenção manual.
 
-**Consequencia:**
-- WAL nunca e truncado e continua crescendo indefinidamente
-- Sistema pode ficar sem espaco em disco
-- Recovery pode ficar lento (muitas operacoes no WAL)
+### Mecanismos de Tolerância a Falhas
 
-**Probabilidade:** Media (depende de condicoes do sistema de arquivos)
+**Implementado:** WAL com durabilidade por operação, snapshot periódico (120s), recuperação automática (`estado = snapshot + WAL`), locks para race conditions, rename atômico de snapshots.
 
-**Mitigacao Atual:** Sistema registra aviso no log mas continua operando
+**Não Implementado:** Replicação, troca automática de servidor em caso de falha (failover), monitoramento de saúde, backups.
 
-**Mitigacao Sugerida:** Implementar monitoramento de tamanho de WAL e alertas
+### Melhorias de Escalabilidade
 
-#### 3. Perda de Operacoes Entre Snapshots
-**Cenario:** Sistema falha depois de snapshot bem-sucedido mas antes de algumas operacoes serem gravadas no novo WAL
+**1. Replicação com algoritmo de consenso (Raft/Paxos):** Usar 3 ou mais servidores onde um líder coordena as escritas e garante que a maioria dos servidores tenha os dados antes de confirmar. Mantém consistência forte, tolera falha de até metade dos servidores, permite múltiplas leituras simultâneas. Trade-off: escritas ficam 2-3x mais lentas (precisa esperar confirmação da maioria).
 
-**Consequencia:**
-- Operacoes entre ultimo snapshot e falha podem ser perdidas se WAL estava sendo truncado
-- Janela de vulnerabilidade de ~10-20ms
+**2. Particionamento de dados (Sharding):** Dividir as listas entre múltiplos servidores usando hash do nome da lista para determinar onde cada uma fica armazenada. Multiplica capacidade de escrita e armazenamento pelo número de servidores. Trade-off: se um servidor falha, perde-se acesso a uma parte dos dados; operações que envolvem múltiplas listas em servidores diferentes ficam complexas.
 
-**Probabilidade:** Muito baixa (requer timing preciso)
+**3. Escrita Assíncrona:** Agrupar várias escritas antes de gravar no disco (batch fsync a cada 10-50ms) e usar cache para leituras. Alcança 1000-10000 escritas por segundo. Trade-off: em caso de falha pode perder operações dos últimos 10-50ms; leituras podem não ver a escrita mais recente imediatamente.
 
-**Mitigacao:** WAL e truncado APOS snapshot ser gravado e sincronizado no disco
+**4. Consistência Eventual (CRDT):** Permitir que múltiplos servidores aceitem escritas ao mesmo tempo e sincronizem depois. Máxima disponibilidade e velocidade. Trade-off: diferentes servidores podem ter dados diferentes temporariamente (segundos ou minutos); precisa de lógica para resolver conflitos quando dados divergem.
 
-#### 4. Corrupcao Durante Operacao Concorrente
-**Cenario:** Operacao de escrita tenta gravar no WAL enquanto truncateWAL() esta fechando/reabrindo arquivo
-
-**Consequencia:**
-- Operacao de escrita pode falhar com erro de arquivo fechado
-- Cliente recebe erro e pode retentar operacao
-
-**Probabilidade:** Baixa (truncateWAL usa Lock exclusivo)
-
-**Mitigacao:** truncateWAL() adquire lock exclusivo (mu.Lock) antes de fechar arquivo
-
-#### 5. Crescimento de Snapshot Individual
-**Cenario:** Cada snapshot continua crescendo conforme dados aumentam (rotacao nao reduz tamanho individual)
-
-**Consequencia:**
-- Cada snapshot pode ficar muito grande (>100MB com muitos dados)
-- Snapshot demorado bloqueia escritas brevemente durante copia de dados
-- Uso de disco: 3 snapshots grandes = 3x tamanho dos dados
-
-**Probabilidade:** Alta (em uso prolongado com muitos dados)
-
-**Mitigacao Atual:** Snapshot usa RLock apenas para copiar dados, liberando antes de I/O; Rotacao limita quantidade total
-
-**Mitigacao Sugerida:** Implementar compressao (gzip) nos snapshots
-
-#### 6. Falha na Limpeza de Snapshots Antigos
-**Cenario:** cleanOldSnapshots() falha (permissoes, disco cheio) mas novo snapshot foi criado
-
-**Consequencia:**
-- Snapshots antigos nao sao removidos
-- Sistema acumula mais de 3 snapshots
-- Uso de disco cresce gradualmente
-
-**Probabilidade:** Baixa (depende de condicoes do sistema de arquivos)
-
-**Mitigacao Atual:** Sistema registra aviso no log mas continua operando normalmente
-
-**Mitigacao Sugerida:** Monitoramento de quantidade de arquivos no diretorio data/
-
-#### 7. Recovery com Snapshot Corrompido
-**Cenario:** Snapshot mais recente esta corrompido mas snapshots anteriores estao integros
-
-**Consequencia:**
-- Recovery falha ao ler snapshot mais recente
-- Sistema nao tenta snapshots anteriores automaticamente
-- Requer intervencao manual para remover snapshot corrompido
-
-**Probabilidade:** Muito baixa (rename atomico protege contra corrupcao durante escrita)
-
-**Mitigacao Atual:** Rename atomico garante que snapshot so e visivel quando completo
-
-**Mitigacao Sugerida:** Implementar fallback automatico para snapshot anterior se o mais recente falhar
+**Recomendação:** Replicação com consenso (Raft) é a melhor opção pois mantém a garantia de consistência forte, permite que o sistema continue funcionando mesmo com falhas e melhora a velocidade de leitura. O custo de escritas mais lentas é aceitável para sistemas que precisam de garantias fortes.
 
 ## Tecnologias
 
