@@ -29,7 +29,8 @@ O sistema utiliza:
 - **Locks**: RWMutex permite leituras paralelas e escritas exclusivas
 
 > ## Documentação Teórica de RPC
-> Para uma explicação detalhada sobre os conceitos de RPC (Remote Procedure Call), Client Stub, Server Stub, marshaling/unmarshaling e o fluxo completo de uma chamada remota implementada neste sistema, consulte o documento [`doc/rpc-explicacao.md`](./remotelist/doc/rpc-explicacao.md).
+
+Para uma explicação detalhada sobre os *conceitos* de RPC (Remote Procedure Call), Client Stub, Server Stub, marshaling/unmarshaling e o fluxo completo de uma chamada remota implementada neste sistema, consulte o documento [`doc/rpc-explicacao.md`](./remotelist/doc/rpc-explicacao.md).
 
 ## Diagramas de Sequência
 
