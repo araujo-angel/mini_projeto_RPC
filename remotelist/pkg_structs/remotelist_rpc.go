@@ -38,7 +38,7 @@ type ListAllReply struct {
 
 // Persistência
 type LogEntry struct {
-	LSN       uint64 `json:"lsn"`
+	LSN       uint64 `json:"lsn"` //Log Sequence Number - "contador global"
 	Timestamp int64  `json:"timestamp"`
 	Operation string `json:"operation"` // "APPEND" ou "REMOVE"
 	ListName  string `json:"list_name"`
@@ -82,7 +82,7 @@ func (l *RemoteList) writeWAL(operation, listName string, value int) error {
 		return err
 	}
 
-	// sync para garantir que está no disco
+	// fsync para garantir que está no disco
 	err = l.walFile.Sync()
 	if err != nil {
 		return err
