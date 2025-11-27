@@ -133,7 +133,7 @@ func main() {
 	fmt.Println("\n[TESTE 3] Multiplas goroutines fazendo Append simultaneo")
 	fmt.Println("Configuracao: 10 goroutines, cada uma faz 10 appends")
 	fmt.Println("Lista: concurrent_append")
-	fmt.Println("Esperado: Size final = 100")
+	fmt.Println("Esperado: Size final = 100 (OBS: CASO O CLIENTE SEJA EXECUTADO MAIS DE UMA VEZ SEM APAGAR A PASTA DATA, O SIZE FINAL NAO SERÁ 100")
 
 	var wg sync.WaitGroup
 	numGoroutines := 10

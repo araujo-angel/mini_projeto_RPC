@@ -306,7 +306,7 @@ go rpcs.ServeConn(conn)
 ### Implementação Real (remotelist_rpc.go)
 
 **Método executado pelo Server Stub:**
-```go
+```
 // Linha 361-376: Lógica de negócio real
 func (l *RemoteList) Append(args AppendArgs, reply *bool) error {
     l.mu.Lock()
@@ -423,7 +423,7 @@ reply = true <──────────────────┘
 
 A interface entre cliente e servidor é definida através de structs compartilhadas em `remotelist_rpc.go`:
 
-```go
+```
 type AppendArgs struct {
     ListName string
     Value    int
